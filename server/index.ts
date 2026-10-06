@@ -1,0 +1,11 @@
+import { homedir } from 'node:os';
+import { resolve, join } from 'node:path';
+import { Store } from './store.ts';
+import { createApp } from './app.ts';
+const directory = resolve(process.env.UBER_DATA_DIR ?? join(homedir(), 'Library', 'Application Support', 'Uber Ride Tracker'));
+const port = Number(process.env.PORT ?? 4310);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1–65535.');
+const store = new Store(directory); const server = createApp(store);
+server.listen(port, '127.0.0.1', () => console.log(`Uber Ride Tracker: http://127.0.0.1:${port}\nData: ${directory}`));
+server.on('error', error => { console.error(error); store.close(); process.exitCode = 1; });
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => server.close(() => { store.close(); process.exit(0); }));

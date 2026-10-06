@@ -1,0 +1,35 @@
+{
+  "name": "daily-uber-trip-calculation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.14.0 <25"
+  },
+  "scripts": {
+    "start": "npm run build && tsx server/index.ts",
+    "build": "npm run setup:ocr && tsc --noEmit && vite build",
+    "test": "tsx --test tests/*.test.ts",
+    "dev": "tsx watch server/index.ts",
+    "test:e2e": "playwright test",
+    "setup:ocr": "node scripts/ocr-assets.mjs"
+  },
+  "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
+    "fflate": "0.8.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "sharp": "0.35.5",
+    "tesseract.js": "7.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.3"
+  }
+}
