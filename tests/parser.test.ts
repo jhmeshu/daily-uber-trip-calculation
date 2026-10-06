@@ -22,3 +22,9 @@ test('Driver cash payment, pickup icon cleanup and cash-minus-tip earnings',()=>
  assert.equal(parse('Cash collected: 407.38\nTips: 0').find(o=>o.field==='reported_net_paisa')!.value,40738);
  assert.ok(!parse('Cash collected: 400\nCash collected: 500\nTips: 40').some(o=>o.field==='reported_net_paisa'));
 });
+
+test('Pickup and drop-off icon glyphs are excluded from address values and retained in source evidence',()=>{
+ const text='UberX 39 min(s) 10 sec(s) 13:04\nBDT 407.38 Cash collected\nMap data ©2026\n? Tejgaon, Dhaka 1215, Dhaka District, Dhaka Division,\n© Bangladesh\n📍 DIT Rd, Dhaka, Dhaka District, Dhaka Division,\n® Bangladesh';
+ const result=parse(text);assert.equal(result.find(o=>o.field==='pickup_location')!.value,'Tejgaon, Dhaka 1215, Dhaka District, Dhaka Division, Bangladesh');assert.equal(result.find(o=>o.field==='drop_location')!.value,'DIT Rd, Dhaka, Dhaka District, Dhaka Division, Bangladesh');assert.ok(result.find(o=>o.field==='pickup_location')!.exact_text.startsWith('?'));assert.ok(result.find(o=>o.field==='drop_location')!.exact_text.startsWith('📍'));
+ const labeled=parse('Pickup: ● #12/A, ঢাকা\nDrop: © Rd No 19/C, Dhaka');assert.equal(labeled.find(o=>o.field==='pickup_location')!.value,'#12/A, ঢাকা');assert.equal(labeled.find(o=>o.field==='drop_location')!.value,'Rd No 19/C, Dhaka');
+});

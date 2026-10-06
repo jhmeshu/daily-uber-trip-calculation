@@ -54,7 +54,12 @@ export function parseDuration(raw:string):number|null {
   if(!Number.isSafeInteger(seconds)||seconds>1_000_000_000_000)throw new ValidationError('Duration is too large.');
   return seconds;
 }
-export const cleanPickup=(value:string)=>value.replace(/^\s*\?+\s*/,'');
+export function cleanLocation(value:string):string {
+  // Pins and their connecting dots can become punctuation or copyright glyphs in OCR.
+  // Remove those markers while retaining address numbers, slashes, hashes and punctuation.
+  const cleaned=value.replace(/(?:^|\s)[?©®○●◉◎◦•▪▫■□◆◇◌◍⊙⦿📍📌🏁🚩⚑⚐⏺⏹▶▷|]+\uFE0F?(?=\s|[\p{L}\p{N}]|$)/gu,' ');
+  return cleaned===value?value:cleaned.replace(/[ \t]{2,}/g,' ').trim();
+}
 export const cashNet=(r:Pick<RideInput,'cash_collected_paisa'|'tips_paisa'>):number|null=>r.cash_collected_paisa===null||r.tips_paisa===null?null:r.cash_collected_paisa-r.tips_paisa;
 export function validDate(value: string): boolean {
   const date = new Date(`${value}T00:00:00Z`);
@@ -81,7 +86,9 @@ export function validateInput(raw: unknown): RideInput {
   }
   if (!paymentMethods.includes(r.payment_method) || !serviceTypes.includes(r.service_type) || !bases.includes(r.financial_basis)) throw new ValidationError('Invalid payment method, service type or financial basis.');
   if (typeof r.financial_confirmed !== 'boolean') throw new ValidationError('Financial confirmation must be explicit.');
-  return structuredClone(r);
+  const cleaned=structuredClone(r);
+  for(const field of ['pickup_location','drop_location'] as const)if(cleaned[field]!==null)cleaned[field]=cleanLocation(cleaned[field]!);
+  return cleaned;
 }
 export function financialSignature(r: RideInput): string {
   return JSON.stringify([...financialFields.map(k => r[k]), r.financial_basis, r.reported_net_paisa, r.adjustment_reason]);

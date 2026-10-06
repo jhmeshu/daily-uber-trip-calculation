@@ -62,3 +62,9 @@ test('Duration uses hh:mm:ss and cash net excludes known tips exactly',()=>{
  for(const value of ['53:34','00:60:00','00:00:60','-01:00:00','3214'])assert.throws(()=>parseDuration(value));
  assert.equal(cashNet({cash_collected_paisa:40738,tips_paisa:4000}),36738);assert.equal(cashNet({cash_collected_paisa:40738,tips_paisa:0}),40738);assert.equal(cashNet({cash_collected_paisa:40738,tips_paisa:null}),null);
 });
+
+test('Address icon cleanup applies on save and CSV export without losing address characters',()=>{
+ const input=validateInput({...complete(),pickup_location:'📍 #12/A, ঢাকা',drop_location:'© Rd No 19/C, Dhaka ® Bangladesh'});assert.equal(input.pickup_location,'#12/A, ঢাকা');assert.equal(input.drop_location,'Rd No 19/C, Dhaka Bangladesh');
+ const csv=exportCsv([ride({pickup_location:'? Tejgaon, Dhaka © Bangladesh',drop_location:'● #19/C, Dhaka'})]);assert.ok(!csv.includes('©'));assert.ok(!csv.includes('●'));assert.ok(csv.includes('Tejgaon, Dhaka Bangladesh'));assert.ok(csv.includes('#19/C, Dhaka'));
+ assert.equal(validateInput({...complete(),pickup_location:'42 O Street / Block #3',drop_location:'Why? Road'}).drop_location,'Why? Road');
+});

@@ -1,6 +1,6 @@
-import { parseDecimal, parseMoney, validDate, cleanPickup, type RideInput } from './domain.ts';
+import { parseDecimal, parseMoney, validDate, cleanLocation, type RideInput } from './domain.ts';
 import type { OcrResult, Transform } from './intake.ts';
-export const PARSER_VERSION = '1.1.0-experimental';
+export const PARSER_VERSION = '1.2.0-experimental';
 export type Position = { left:number;top:number;width:number;height:number };
 export type Observation = { field:keyof RideInput|'trip_id';value:string|number;exact_text:string;position:Position|null;confidence:number };
 export function normalize(text:string) { return text.replace(/[০-৯]/g,c=>String(c.charCodeAt(0)-'০'.charCodeAt(0))).replace(/\u00a0/g,' ').replace(/[৳]/g,'BDT ').replace(/[\t ]+/g,' ').trim(); }
@@ -21,7 +21,7 @@ export function parseOcr(result:OcrResult):Observation[] {
   if((m=line.match(/\b(?:Pickup time|Time)\s*:\s*((?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)\b/i)))add('pickup_time',m[1]!.length===5?m[1]+':00':m[1]!,exact);
   if((m=line.match(/(?<![\d.,])\b(?:Distance\s*:\s*)?(\d+(?:\.\d{1,3})?)\s*km\b/i)))add('distance_meters',parseDecimal(m[1]!,3)!,exact);
   if((m=line.match(/(\d+)\s*min(?:\(s\)|s)?\s*(\d+)\s*sec(?:\(s\)|s)?/i))&&Number(m[2])<60)add('duration_seconds',Number(m[1])*60+Number(m[2]),exact);
-  for(const [regex,field]of [[/^Pickup\s*:\s*(.+)$/i,'pickup_location'],[/^Drop(?:off)?\s*:\s*(.+)$/i,'drop_location'],[/^Trip ID\s*:\s*(\S+)$/i,'trip_id']] as const)if((m=line.match(regex)))add(field,field==='pickup_location'?cleanPickup(m[1]!):m[1]!,exact);
+  for(const [regex,field]of [[/^Pickup\s*:\s*(.+)$/i,'pickup_location'],[/^Drop(?:off)?\s*:\s*(.+)$/i,'drop_location'],[/^Trip ID\s*:\s*(\S+)$/i,'trip_id']] as const)if((m=line.match(regex)))add(field,field==='trip_id'?m[1]!:cleanLocation(m[1]!),exact);
   if((m=line.match(/^Payment(?: method)?\s*:\s*(Cash|bKash|Other)$/i)))add('payment_method',m[1]!.toLowerCase()==='bkash'?'bKash':m[1]!.toLowerCase()==='cash'?'Cash':'Other',exact);
   if(/\bUber\s?X\b/i.test(line))add('service_type','Uber X',exact);else if(/\bUber Premium\b/i.test(line))add('service_type','Uber Premium',exact);else if(/\bUber Premier\b/i.test(line))add('service_type','Other',exact);
  }
@@ -29,7 +29,7 @@ export function parseOcr(result:OcrResult):Observation[] {
  const summary=lines.some(x=>/Cash collected/i.test(x))&&lines.some(x=>/Uber\s?(?:X|Premier|Premium)/i.test(x));
  if(summary){for(const exact of lines){const m=normalize(exact).match(/(?:^|\s)((?:[01]\d|2[0-3]):[0-5]\d)(?:\s|$)/);if(m&&!out.some(x=>x.field==='pickup_time'))add('pickup_time',m[1]+':00',exact);}
   const mapEnd=lines.findIndex(x=>/Map data.*20\d{2}/i.test(x));
-  if(mapEnd>=0){const route=lines.slice(mapEnd+1);const boundaries:number[]=[];route.forEach((x,i)=>{if(/Dhaka|Bangladesh/i.test(x)&&!/^Bangladesh\s*$/i.test(x.trim())&&(i===0||/Bangladesh\s*$/i.test(route[i-1]!.trim())))boundaries.push(i);});if(boundaries.length===2){const pickup=route.slice(boundaries[0],boundaries[1]).join(' ').trim();const drop=route.slice(boundaries[1]).join(' ').trim();add('pickup_location',cleanPickup(pickup),route[boundaries[0]!]!);add('drop_location',drop,route[boundaries[1]!]!);}}
+  if(mapEnd>=0){const route=lines.slice(mapEnd+1);const boundaries:number[]=[];route.forEach((x,i)=>{if(/Dhaka|Bangladesh/i.test(x)&&!/^Bangladesh\s*$/i.test(x.trim())&&(i===0||/Bangladesh\s*$/i.test(route[i-1]!.trim())))boundaries.push(i);});if(boundaries.length===2){const pickup=route.slice(boundaries[0],boundaries[1]).join(' ').trim();const drop=route.slice(boundaries[1]).join(' ').trim();add('pickup_location',cleanLocation(pickup),route[boundaries[0]!]!);add('drop_location',cleanLocation(drop),route[boundaries[1]!]!);}}
  }
  const cash=out.filter(o=>o.field==='cash_collected_paisa');
  const tips=out.filter(o=>o.field==='tips_paisa');

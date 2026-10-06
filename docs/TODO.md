@@ -109,6 +109,14 @@ Repair verification: build and all 18 automated tests passed. Eight browser work
 
 Field-correction verification: build passed; 21 automated tests and nine browser workflows passed, including both supplied JPEGs. The tipped screenshot yielded Cash, 00:39:10, cash BDT 407.38, tips BDT 40.00 and net earnings BDT 367.38; correction to cash BDT 500.00 updated net to BDT 460.00. Duration 01:02:03 saved 3723 seconds and displayed the same format. Old pickup-icon evidence stays in history without causing a current conflict. Local app restarted after a safety backup; rides and screenshots stayed unchanged, the unfinished session was retained, and concurrent autosave advanced its revision while setting payment method to Cash.
 
+## Pickup and drop-off icon cleanup — 6 October 2026
+
+- [x] Remove pin/dot glyphs and OCR symbol artifacts from both route addresses, including wrapped country lines.
+- [x] Apply cleanup to recovered forms, displayed rides, saved input and CSV exports; retain raw OCR and previous evidence.
+- [x] Verify actual screenshots, address punctuation, parser history, build and regression suite; run the updated server.
+
+Verification: build passed, 23 automated tests and nine browser workflows passed. Both original supplied JPEGs passed 12/12 sample field assertions each. Actual browser OCR confirmed neither pickup nor drop-off contains the tested icon artifacts. Numbers, address slashes/hashes, Bangla text and legitimate punctuation are retained. Server running at `http://127.0.0.1:4310`; rides, unfinished sessions and screenshots matched the pre-restart snapshot after a safety backup.
+
 ## Deferred backlog — outside MVP
 
 User explicitly selected “Complete the defined MVP first” on 6 October 2026. These items remain outside this delivery; they are not unfinished MVP tasks and require a later scope change.
