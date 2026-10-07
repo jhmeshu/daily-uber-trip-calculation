@@ -5,3 +5,5 @@ nav{display:flex;gap:10px;margin:0 0 24px}.drop-zone{border:2px dashed #adc7b5;p
 .evidence-review{background:#f5f8f3;border:1px solid #dce6dd;border-radius:10px;padding:18px;margin-bottom:22px}.evidence-review label{margin:14px 0}.evidence-review details{margin:12px 0}.evidence-review article{border-top:1px solid #dce6dd;padding:12px 0}.evidence-review small{display:block}
 
 .recent-ride{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #dce6dd;padding:16px 0;gap:16px}.settings h3{margin-top:24px}.storage-path{overflow-wrap:anywhere;font-size:13px}nav{flex-wrap:wrap}
+
+.badge.match{background:#e4f1e6;color:#276d3d}.badge.variance{background:#f4edda;color:#836521}.badge.not_comparable{background:#e8ebea;color:#57675f}.badge.defect{background:#f1e4e4;color:#8f4343}.missing-fields{color:#9b3730;font-weight:600}

@@ -3,6 +3,7 @@ import { api } from './api.ts';
 import { TesseractAdapter } from './ocr.ts';
 import { validateBatch, type ImportGroup, type ImportItem } from './shared/intake.ts';
 import type { Ride } from './shared/domain.ts';
+import { WorkbookImport } from './WorkbookImport.tsx';
 export function ImportPanel({ onReview }: { onReview: (ride: Ride) => void }) {
  const [groups, setGroups] = useState<ImportGroup[]>([]); const [error,setError] = useState(''); const [notice,setNotice] = useState('');
  const [duplicates,setDuplicates] = useState<any[]>([]); const [busy,setBusy] = useState(false); const [job,setJob] = useState<string | null>(null);
@@ -44,7 +45,7 @@ export function ImportPanel({ onReview }: { onReview: (ride: Ride) => void }) {
   finally { if(mounted.current) setBusy(false); }
  }
  async function action(fn:()=>Promise<unknown>) { try { setError(''); await fn(); await load(); } catch(e) { setError((e as Error).message); } }
- return <section className="panel import-panel" onDragOver={e=>e.preventDefault()} onDrop={e=>{ e.preventDefault(); if(!busy) void intake(Array.from(e.dataTransfer.files)); }} onPaste={e=>{ const files = Array.from(e.clipboardData.files); if(files.length && !busy) {e.preventDefault();void intake(files);} }}>
+ return <><WorkbookImport /><section className="panel import-panel" onDragOver={e=>e.preventDefault()} onDrop={e=>{ e.preventDefault(); if(!busy) void intake(Array.from(e.dataTransfer.files)); }} onPaste={e=>{ const files = Array.from(e.clipboardData.files); if(files.length && !busy) {e.preventDefault();void intake(files);} }}>
   <div className="section-title"><h2>Import screenshots</h2><span>{available?'English OCR ready · local assets':'OCR assets unavailable — run npm run setup:ocr and rebuild'}</span></div>
   <p>Choose, drop or paste PNG, JPEG or WebP images. Up to 20 images per batch, 10,000,000 bytes each. If paste is unavailable, save the image and use the file picker.</p>
   <label className="drop-zone">Choose screenshots<input aria-label="Choose screenshots" type="file" accept="image/png,image/jpeg,image/webp" multiple disabled={busy} onChange={e=>{if(e.target.files) void intake(Array.from(e.target.files)); e.target.value='';}}/></label>
@@ -61,7 +62,7 @@ export function ImportPanel({ onReview }: { onReview: (ride: Ride) => void }) {
    </div>)}</div>
   </article>)}
   {!groups.length&&<div className="empty">No screenshots imported yet. Manual entry is available in Rides.</div>}
- </section>;
+ </section></>;
 }
 export function ImagePreparation({item,disabled,onChange}:{item:ImportItem;disabled:boolean;onChange:()=>Promise<unknown>}) {
  const [crop,setCrop] = useState('');const [error,setError] = useState('');
