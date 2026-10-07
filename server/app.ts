@@ -57,7 +57,7 @@ export function createApp(store: Store, dist = resolve('dist')) {
           else throw new ValidationError('Invalid evidence action.');return;
         }
       }
-      if (path === '/api/health' && req.method === 'GET') { send(200, { ok: true, schema_version: 3, data_directory: store.directory, timezone: JSON.parse(String(store.db.prepare("SELECT value FROM settings WHERE key='timezone'").get()!.value)) }); return; }
+      if (path === '/api/health' && req.method === 'GET') { send(200, { ok: true, schema_version: 4, data_directory: store.directory, timezone: JSON.parse(String(store.db.prepare("SELECT value FROM settings WHERE key='timezone'").get()!.value)) }); return; }
       if (path === '/api/rides' && req.method === 'GET') { const rides = store.list(parseFilters(url.searchParams)); send(200, { rides, summary: summarize(rides) }); return; }
       if (path === '/api/export' && req.method === 'GET') {
         const scope = url.searchParams.get('scope') ?? 'filtered';

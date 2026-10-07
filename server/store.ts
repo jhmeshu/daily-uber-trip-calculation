@@ -29,7 +29,7 @@ export class Store {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(join(directory, 'rides.sqlite'), { timeout: 5000 });
     this.db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
-    try { migrate(this.db, ['001-initial.sql', '002-intake.sql', '003-evidence.sql'].map(name => readFileSync(fileURLToPath(new URL(`./migrations/${name}`, import.meta.url)), 'utf8'))); }
+    try { migrate(this.db, ['001-initial.sql', '002-intake.sql', '003-evidence.sql', '004-workbook-import.sql'].map(name => readFileSync(fileURLToPath(new URL(`./migrations/${name}`, import.meta.url)), 'utf8'))); }
     catch (err) { this.db.close(); throw err; }
     this.db.exec("UPDATE import_items SET status='interrupted',token=NULL WHERE status='running'");
   }
@@ -50,7 +50,8 @@ export class Store {
   list(f: Filters = {}) {
     return this.db.prepare('SELECT * FROM rides ORDER BY updated_at DESC, id').all().map(row => this.decode(row)).filter(r => matches(r, f));
   }
-  save(raw: unknown, status: 'draft' | 'reviewed', id?: string, revision?: number, sessionId?: string): Ride {
+  // notify:false keeps the afterSave fan-out (evidence.finalize) out of bulk machine-authored writes, whose provenance is the import record, not 'manual'.
+  save(raw: unknown, status: 'draft' | 'reviewed', id?: string, revision?: number, sessionId?: string, notify = true): Ride {
     const input = validateInput(raw);
     if (!['draft', 'reviewed'].includes(status)) throw new ValidationError('Invalid save status.');
     if (sessionId) requireId(sessionId);
@@ -69,7 +70,7 @@ export class Store {
         ON CONFLICT(id) DO UPDATE SET status=excluded.status, revision=excluded.revision, data=excluded.data, updated_at=excluded.updated_at, reviewed_at=excluded.reviewed_at`).run(rideId, status, rev, JSON.stringify(input), r.created_at, now, r.reviewed_at);
       if (status === 'reviewed') this.db.prepare('INSERT INTO confirmations VALUES (?,?,?,?,?)').run(randomUUID(), rideId, rev, financialSignature(input), now);
       this.event(rideId, before ? 'edit' : 'create', before, r);
-      this.afterSave?.(r);
+      if (notify) this.afterSave?.(r);
       if (sessionId) {
         const session = this.getSession(sessionId);
         if (session && session.ride_id !== (id ?? null)) throw new ValidationError('Session belongs to a different ride.');

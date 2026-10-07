@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store, migrate } from '../server/store.ts';
 import { createApp } from '../server/app.ts';
+import { Intake } from '../server/intake.ts';
+import { Evidence } from '../server/evidence.ts';
 import { blankRide } from '../src/shared/domain.ts';
 function sessionPayload(cash: string) { return { form: Object.fromEntries(Object.entries(blankRide()).map(([key, value]) => [key, key === 'cash_collected_paisa' ? cash : typeof value === 'boolean' ? value : value === null ? '' : String(value)])) }; }
 function complete() { return { ...blankRide(), trip_date: '2026-10-06', pickup_time: '09:30:00', financial_basis: 'worksheet_cash_plus_credit' as const, cash_collected_paisa: 50000, uber_credit_paisa: 0, tips_paisa: 4000, commission_paisa: 5000, pass_charge_paisa: 0, financial_confirmed: true }; }
@@ -44,6 +46,56 @@ test('migration rollback preserves schema/version and refuses newer databases', 
     assert.throws(() => migrate(db, []));
   } finally { db.close(); }
 });
+test('schema version 4 registers the three import tables with their exact columns and checks', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'uber-schema4-')); const store = new Store(directory);
+  const now = '2026-10-06T09:30:00.000Z'; const source = randomUUID();
+  const columns = (table: string) => store.db.prepare(`PRAGMA table_info(${table})`).all().map(c => String(c.name));
+  const insertSource = (sha: string, bytes: number, tabs: string) => store.db.prepare('INSERT INTO import_sources VALUES (?,?,?,?,?,?,?)').run(source, 'ledger.xlsx', sha, bytes, tabs, now, 'imported once');
+  const insertRow = (sheetRow: number, disposition: string, missing: string, raw: string, ride: string | null) => store.db.prepare('INSERT INTO import_rows VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(randomUUID(), source, 'July-2026', sheetRow, 'LAYOUT_B', raw, '{}', disposition, missing, ride, '', now);
+  const insertVariance = (verdict: string, app: number | null, difference: number | null) => store.db.prepare('INSERT INTO import_variance VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(randomUUID(), source, 'July-2026', 'N10', 'commission_paisa', '12.68', '=K9', app, difference, verdict, '', now);
+  try {
+    assert.equal(store.db.prepare('PRAGMA user_version').get()!.user_version, 4);
+    assert.deepEqual(columns('import_sources'), ['id', 'filename', 'sha256', 'bytes', 'detected_tabs', 'imported_at', 'note']);
+    assert.deepEqual(columns('import_rows'), ['id', 'source_id', 'sheet_name', 'sheet_row', 'layout', 'raw_cells', 'mapped', 'disposition', 'missing_fields', 'ride_id', 'reason', 'created_at']);
+    assert.deepEqual(columns('import_variance'), ['id', 'source_id', 'sheet_name', 'location', 'metric', 'workbook_reported', 'workbook_formula', 'app_value_paisa', 'difference_paisa', 'verdict', 'note', 'created_at']);
+    assert.deepEqual(store.db.prepare('PRAGMA foreign_key_check').all(), []);
+    assert.throws(() => migrate(store.db, [])); // user_version 4 is newer than the app.
+    assert.throws(() => insertSource('a'.repeat(63), 4096, '["July-2026"]'));
+    assert.throws(() => insertSource('a'.repeat(64), 0, '["July-2026"]'));
+    assert.throws(() => insertSource('a'.repeat(64), 4096, 'not json'));
+    insertSource('a'.repeat(64), 4096, '["July-2026"]');
+    assert.throws(() => insertRow(0, 'imported', '[]', '{}', null));
+    assert.throws(() => insertRow(10, 'bogus', '[]', '{}', null));
+    assert.throws(() => insertRow(10, 'imported', '[]', 'not json', null));
+    assert.throws(() => insertRow(10, 'imported', 'nope', '{}', null));
+    assert.throws(() => insertRow(10, 'imported', '[]', '{}', randomUUID()));
+    insertRow(9, 'needs_field', '["uber_credit_paisa"]', '{}', null);
+    assert.throws(() => insertRow(9, 'imported', '[]', '{}', null)); // UNIQUE(source_id,sheet_name,sheet_row)
+    insertVariance('not_comparable', null, null); // an absent amount is unknown, never zero.
+    const absent = store.db.prepare('SELECT app_value_paisa, difference_paisa FROM import_variance WHERE verdict=?').get('not_comparable')!;
+    assert.equal(absent.app_value_paisa, null); assert.equal(absent.difference_paisa, null);
+    assert.throws(() => insertVariance('unknown_verdict', 0, 0));
+    insertVariance('match', 1268, 0);
+    const ride = store.save(blankRide(), 'draft');
+    insertRow(10, 'imported', '[]', '{}', ride.id);
+    assert.equal(store.db.prepare('SELECT ride_id FROM import_rows WHERE sheet_row=10').get()!.ride_id, ride.id);
+    store.change(ride.id, 'trash', 1); store.change(ride.id, 'purge', 2);
+    assert.equal(store.db.prepare('SELECT ride_id FROM import_rows WHERE sheet_row=10').get()!.ride_id, null); // ON DELETE SET NULL
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+test('save() with notify disabled writes the ride and its history event but no field decisions', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'uber-notify-')); const store = new Store(directory);
+  try {
+    const evidence = new Evidence(store, new Intake(store)); store.afterSave = ride => evidence.finalize(ride);
+    const decisions = (id: string) => Number(store.db.prepare('SELECT count(*) AS count FROM field_decisions WHERE ride_id=?').get(id)!.count);
+    const silent = store.save(complete(), 'draft', undefined, undefined, undefined, false);
+    assert.equal(store.get(silent.id).status, 'draft'); assert.equal(store.history(silent.id).length, 1); assert.equal(decisions(silent.id), 0);
+    const loud = store.save(complete(), 'draft');
+    assert.ok(decisions(loud.id) > 0);
+    assert.equal(Number(store.db.prepare("SELECT count(*) AS count FROM field_decisions WHERE origin='manual'").get()!.count), decisions(loud.id));
+    assert.equal(store.save(complete(), 'draft', undefined, undefined, undefined, true).id === silent.id, false);
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
 test('A20: API rejects foreign origin, host, invalid fields and stale saves; filter/export consistency', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'uber-api-')); const store = new Store(dir); const server = createApp(store);
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -54,6 +106,7 @@ test('A20: API rejects foreign origin, host, invalid fields and stale saves; fil
     const hostStatus = await new Promise<number | undefined>((resolve, reject) => { const req = httpRequest(base + '/api/rides', { headers: { Host: 'evil.example' } }, res => { res.resume(); resolve(res.statusCode); }); req.on('error', reject); req.end(); });
     assert.equal(hostStatus, 403);
     assert.equal((await request('/api/rides', {}, 'POST', { 'Sec-Fetch-Site': 'cross-site' })).status, 403);
+    assert.equal((await (await fetch(base + '/api/health')).json()).schema_version, 4);
     assert.equal((await request('/api/rides', { input: complete(), status: 'draft', session_id: false })).status, 400);
     assert.equal((await request('/api/rides', { input: { ...complete(), total: 1 }, status: 'reviewed', session_id: null })).status, 400);
     assert.equal((await request('/api/rides', { input: { ...complete(), trip_date: '2026-99-99' }, status: 'reviewed', session_id: null })).status, 400);

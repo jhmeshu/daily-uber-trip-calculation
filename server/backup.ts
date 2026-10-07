@@ -8,11 +8,14 @@ import { Store,requireId } from './store.ts';
 import { hash,Intake } from './intake.ts';
 import { blankRide,reviewErrors,validateInput,ValidationError } from '../src/shared/domain.ts';
 import {validateBatch,validateTransform} from '../src/shared/intake.ts';
-export const BACKUP_TABLES=['rides','sessions','confirmations','history','settings','attachments','import_groups','import_items','ocr_runs','upload_batches','upload_slots','field_observations','field_decisions','duplicate_decisions','trip_identifiers','review_events'] as const;
+// The three import tables follow 'rides' because stage() wipes with [...BACKUP_TABLES].reverse(); reversed they must delete children before parents under foreign_keys=ON.
+export const BACKUP_TABLES=['rides','sessions','confirmations','history','settings','attachments','import_groups','import_items','ocr_runs','upload_batches','upload_slots','field_observations','field_decisions','duplicate_decisions','trip_identifiers','review_events','import_sources','import_rows','import_variance'] as const;
+const IMPORT_TABLES:readonly string[]=['import_sources','import_rows','import_variance'];
+const LEGACY_SCHEMA_VERSION=3;
 const crcTable=Array.from({length:256},(_,n)=>{let c=n;for(let i=0;i<8;i++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c>>>0;});
 function crc32(data:Uint8Array){let crc=0xffffffff;for(const byte of data)crc=crcTable[(crc^byte)&255]!^(crc>>>8);return(crc^0xffffffff)>>>0;}
 const MAX_ARCHIVE=200_000_000,MAX_EXPANDED=512_000_000,MAX_ENTRIES=10000;
-export type BackupManifest={format:'uber-ride-tracker';backup_version:1;schema_version:3;created_at:string;tables:Record<string,Record<string,any>[]>;files:{path:string;bytes:number;sha256:string}[]};
+export type BackupManifest={format:'uber-ride-tracker';backup_version:1;schema_version:4;created_at:string;tables:Record<string,Record<string,any>[]>;files:{path:string;bytes:number;sha256:string}[]};
 function archiveEntries(buffer:Buffer){
  if(buffer.length>MAX_ARCHIVE||buffer.length<22)throw new ValidationError('Backup ZIP is empty, invalid or exceeds 200 MB.');
  let end=-1;for(let i=buffer.length-22;i>=Math.max(0,buffer.length-65557);i--)if(buffer.readUInt32LE(i)===0x06054b50){end=i;break;}
@@ -41,7 +44,7 @@ export class Backups {
   const manifest=this.store.transaction(()=>{
    const tables=Object.fromEntries(BACKUP_TABLES.map(table=>[table,this.store.db.prepare(`SELECT * FROM ${table}`).all()]));
    const files=(tables.attachments??[]).map(a=>{const path=`originals/${a.storage_key}`;const data=readFileSync(join(this.store.directory,path));if(hash(data)!==a.hash)throw new ValidationError('Original image hash mismatch. Repair storage before backup.');return{path,bytes:data.length,sha256:hash(data)};});
-   return{format:'uber-ride-tracker',backup_version:1,schema_version:3,created_at:new Date().toISOString(),tables,files} as BackupManifest;
+   return{format:'uber-ride-tracker',backup_version:1,schema_version:4,created_at:new Date().toISOString(),tables,files} as BackupManifest;
   });
   const archive:Record<string,Uint8Array>={'data.json':strToU8(JSON.stringify(manifest))};
   for(const f of manifest.files)archive[f.path]=readFileSync(join(this.store.directory,f.path));
@@ -50,7 +53,11 @@ export class Backups {
  async stage(buffer:Buffer,fault?:(step:string)=>void){
   const {names,checksums}=archiveEntries(buffer);let archive:Record<string,Uint8Array>;let manifest:BackupManifest;
   try{archive=unzipSync(buffer);for(const[name,data]of Object.entries(archive))if(crc32(data)!==checksums.get(name))throw new Error('ZIP checksum mismatch');manifest=JSON.parse(strFromU8(archive['data.json']!));}catch{throw new ValidationError('Corrupt backup ZIP or JSON.');}
-  if(!manifest||manifest.format!=='uber-ride-tracker'||manifest.backup_version!==1||manifest.schema_version!==3||!timestamp(manifest.created_at)||!manifest.tables||Object.keys(manifest.tables).sort().join(',')!==[...BACKUP_TABLES].sort().join(',')||!Array.isArray(manifest.files))throw new ValidationError('Unsupported backup format or schema.');
+  if(!manifest||manifest.format!=='uber-ride-tracker'||manifest.backup_version!==1||!timestamp(manifest.created_at)||!manifest.tables||!Array.isArray(manifest.files))throw new ValidationError('Unsupported backup format or schema.');
+  const version=(manifest as {schema_version:number}).schema_version;const allowed=version===4?BACKUP_TABLES:version===LEGACY_SCHEMA_VERSION?BACKUP_TABLES.filter(t=>!IMPORT_TABLES.includes(t)):null;
+  if(!allowed||Object.keys(manifest.tables).sort().join(',')!==[...allowed].sort().join(','))throw new ValidationError('Unsupported backup format or schema.');
+  // A pre-upgrade manifest has no import tables; the candidate database already has them empty, and a zero-row table is never column-checked below.
+  if(version!==4)for(const table of IMPORT_TABLES)manifest.tables[table]=[];
   const generation=randomUUID(),directory=join(this.store.rootDirectory,'generations',generation);mkdirSync(directory,{recursive:true,mode:0o700});let candidate:Store|null=null;
   try{
    candidate=new Store(directory);const columns=Object.fromEntries(BACKUP_TABLES.map(t=>[t,candidate!.db.prepare(`PRAGMA table_info(${t})`).all().map(c=>String(c.name))]));

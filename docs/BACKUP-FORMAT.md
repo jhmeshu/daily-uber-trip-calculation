@@ -2,9 +2,11 @@
 
 A ZIP contains `data.json` and exactly the original images named in its file manifest. No symlinks, absolute paths, parent-directory segments, directory entries, encrypted/multipart ZIPs, ZIP64 or duplicate names are supported.
 
-`data.json` has `format: "uber-ride-tracker"`, `backup_version: 1`, `schema_version: 3`, ISO `created_at`, `tables` and `files`. Each file entry specifies relative path, byte length and SHA-256. Image keys must match their UUID and decoded MIME/metadata; originals are validated by content and hash. CRC32 validates each ZIP entry before JSON/image validation.
+`data.json` has `format: "uber-ride-tracker"`, `backup_version: 1`, `schema_version: 4`, ISO `created_at`, `tables` and `files`. Each file entry specifies relative path, byte length and SHA-256. Image keys must match their UUID and decoded MIME/metadata; originals are validated by content and hash. CRC32 validates each ZIP entry before JSON/image validation.
 
-Table names: rides, sessions, confirmations, history, settings, attachments, import_groups, import_items, ocr_runs, upload_batches, upload_slots, field_observations, field_decisions, duplicate_decisions, trip_identifiers, review_events. Exact schema columns are required; unknown columns/tables are rejected. SQLite constraints/foreign keys and domain checks run against a fresh staged database before activation. The backup version is independent of transactional database migration versions.
+Table names: rides, sessions, confirmations, history, settings, attachments, import_groups, import_items, ocr_runs, upload_batches, upload_slots, field_observations, field_decisions, duplicate_decisions, trip_identifiers, review_events, import_sources, import_rows, import_variance. Exact schema columns are required; unknown columns/tables are rejected. SQLite constraints/foreign keys and domain checks run against a fresh staged database before activation. The backup version is independent of transactional database migration versions.
+
+A `schema_version: 3` archive is accepted: the allowed table set for that version is the nineteen names above minus `import_sources`, `import_rows` and `import_variance`, and those three are restored empty. Any other `schema_version` is rejected. Table order matters because staging deletes in reverse order under `foreign_keys = ON`, so `import_variance`, `import_rows` and `import_sources` follow `rides`.
 
 Snapshots are taken synchronously within a SQLite transaction, followed by reading immutable, reference-owned originals before another event-loop mutation can interleave. Derived income is recomputed after restore. Image previews and OCR binaries are not user-data backup contents.
 
