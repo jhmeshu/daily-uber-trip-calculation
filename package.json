@@ -12,10 +12,13 @@
     "test": "tsx --test tests/*.test.ts",
     "dev": "tsx watch server/index.ts",
     "test:e2e": "playwright test",
-    "setup:ocr": "node scripts/ocr-assets.mjs"
+    "setup:ocr": "node scripts/ocr-assets.mjs",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm test"
   },
   "dependencies": {
     "@tesseract.js-data/eng": "1.0.0",
+    "exceljs": "4.4.0",
     "fflate": "0.8.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
