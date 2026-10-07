@@ -1,5 +1,6 @@
-import { blankRide, cleanLocation, financialFields, parseDecimal, parseDuration, paymentMethods, serviceTypes, ValidationError, validDate, type MoneyField, type RideInput } from './domain.ts';
+import { blankRide, cleanLocation, decimal, financialFields, parseDecimal, parseDuration, paymentMethods, serviceTypes, ValidationError, validDate, type MoneyField, type RideInput } from './domain.ts';
 import { normalize } from './parser.ts';
+import { cell } from './csv.ts';
 // A workbook row is not an OCR observation, so it carries its own version stamp. Reusing PARSER_VERSION would
 // mislabel workbook-derived rows as OCR evidence in field_observations.
 export const WORKBOOK_PARSER_VERSION='1.0.0-workbook';
@@ -212,4 +213,11 @@ export function worksheetTotal(rows:readonly RideInput[]):WorksheetTotal{
     :receiptRows===0?'No row carries a known cash or Uber credit amount, so the known deductions and tips cannot be totalled as receipts.'
     :`${receiptRows} of ${rowsCounted} counted rows carry a known cash or Uber credit amount; ${absent} absent amount${absent===1?'':'s'} across the tab were excluded rather than counted as zero.`;
   return {totalPaisa:Number(total),comparable,rowsCounted,rowsExcluded,excludedFields,reason};
+}
+export type VarianceRow={sheet_name:string;location:string;metric:string;workbook_reported:string|null;workbook_formula:string|null;app_value_paisa:number|null;difference_paisa:number|null;verdict:string;note:string};
+// Own frozen ten-column header — distinct from the rides CSV contract. Byte shape mirrors exportCsv: BOM, CRLF, trailing CRLF, cell() quoting with positional text flags.
+export function varianceCsv(rows:readonly VarianceRow[],sourceSha256:string):string{
+  const header='source_sha256,sheet_name,location,metric,workbook_reported,workbook_formula,app_value_bdt,difference_bdt,verdict,note';
+  const lines=rows.map(r=>[cell(sourceSha256),cell(r.sheet_name),cell(r.location),cell(r.metric),cell(r.workbook_reported),cell(r.workbook_formula),cell(decimal(r.app_value_paisa),false),cell(decimal(r.difference_paisa),false),cell(r.verdict),cell(r.note)].join(','));
+  return '\uFEFF'+[header,...lines].join('\r\n')+'\r\n';
 }

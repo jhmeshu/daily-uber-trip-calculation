@@ -9,6 +9,9 @@ import { Evidence } from './evidence.ts';
 import { Intake } from './intake.ts';
 import { intakeRoutes } from './intake-routes.ts';
 import { Store, ConflictError, requireId } from './store.ts';
+import { WorkbookImport } from './workbook.ts';
+import { varianceCsv } from '../src/shared/workbook.ts';
+import { MAX_WORKBOOK_BYTES } from './workbook-container.ts';
 async function body(req: IncomingMessage): Promise<Record<string, any>> {
   if (!req.headers['content-type']?.startsWith('application/json')) throw new ValidationError('Use application/json.');
   const chunks: Buffer[] = []; let size = 0;
@@ -22,7 +25,7 @@ function exact(obj: Record<string, any>, keys: string[]) {
   if (Object.keys(obj).some(k => !keys.includes(k)) || keys.some(k => !(k in obj))) throw new ValidationError('Unexpected or missing request fields.');
 }
 export function createApp(store: Store, dist = resolve('dist')) {
-  const intake = new Intake(store); const evidence = new Evidence(store,intake); const backups=new Backups(store);
+  const intake = new Intake(store); const evidence = new Evidence(store,intake); const backups=new Backups(store); const workbookImport = new WorkbookImport(store);
   store.reviewGuard=(input,id)=>evidence.check(input,id); store.afterSave=ride=>evidence.finalize(ride);
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -45,6 +48,16 @@ export function createApp(store: Store, dist = resolve('dist')) {
       if(path==='/api/backup'&&req.method==='GET'){const archive=backups.snapshot();res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="uber-backup.zip"'});res.end(archive);return;}
       if(path==='/api/restore/preview'&&req.method==='POST'){backups.busy=true;try{send(200,await backups.stage(await binary(req,200_000_000)));}finally{backups.busy=false;}return;}
       if(path==='/api/restore/activate'&&req.method==='POST'){const b=await readBody(req);exact(b,['token','confirmed']);send(200,backups.activate(b.token,b.confirmed));return;}
+      if (path==='/api/import/workbook/preview'&&req.method==='POST') { const buffer = await binary(req, MAX_WORKBOOK_BYTES); send(200, await workbookImport.preview(buffer)); return; }
+      if (path==='/api/import/workbook/commit'&&req.method==='POST') { const b = await readBody(req); exact(b, ['token', 'confirmed', 'reason']); if (b.confirmed !== true) throw new ValidationError('Explicit confirmation is required.'); send(200, await workbookImport.commit(b.token, b.confirmed, b.reason)); return; }
+      if (path==='/api/import/workbook/report'&&req.method==='GET') { send(200, workbookImport.report(url.searchParams.get('source_id') ?? undefined)); return; }
+      if (path==='/api/import/workbook/variance.csv'&&req.method==='GET') {
+        const sourceId = url.searchParams.get('source_id'); if (!sourceId) throw new ValidationError('Missing source_id.');
+        const parsed = workbookImport.report(sourceId);
+        const rows = parsed.variance.map(v => ({ sheet_name: String(v.sheet_name), location: String(v.location), metric: String(v.metric), workbook_reported: v.workbook_reported === null ? null : String(v.workbook_reported), workbook_formula: v.workbook_formula === null ? null : String(v.workbook_formula), app_value_paisa: v.app_value_paisa === null ? null : Number(v.app_value_paisa), difference_paisa: v.difference_paisa === null ? null : Number(v.difference_paisa), verdict: String(v.verdict), note: String(v.note) }));
+        const csv = varianceCsv(rows, parsed.source.sha256);
+        res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="uber-import-variance-${parsed.source.importedAt.slice(0, 10)}.csv"` }); res.end(csv); return;
+      }
       if (await intakeRoutes(req, res, url, intake, dist, readBody, send)) return;
       const evidenceMatch = /^\/api\/rides\/([^/]+)\/(evidence|resolve|duplicates|separate|attach)$/.exec(path);
       if(evidenceMatch){ const [,id,action]=evidenceMatch;requireId(id!);

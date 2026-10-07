@@ -5,13 +5,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zipSync, strToU8 } from 'fflate';
 import { Store } from '../server/store.ts';
+import { createApp } from '../server/app.ts';
 import { WorkbookImport } from '../server/workbook.ts';
+import { csvHeaders } from '../src/shared/csv.ts';
 import { Intake } from '../server/intake.ts';
 import { Evidence } from '../server/evidence.ts';
 import { blankRide, summarize } from '../src/shared/domain.ts';
 import { columnIndex, mapCell, mapRow, detectLayout, isRideRow, rideRows, serialToLocalDate, serialToLocalTime, serialToDurationSeconds, assertDateSystem, usesDate1904, worksheetTotal, WORKBOOK_PARSER_VERSION, LAYOUT_A, LAYOUT_B, LAYOUT_C, layouts, type CellValue, type SheetRow, type WorkbookLayout } from '../src/shared/workbook.ts';
 import { PARSER_VERSION } from '../src/shared/parser.ts';
 import { decimal, financialFields, validateInput, ValidationError } from '../src/shared/domain.ts';
+import { randomUUID } from 'node:crypto';
 
 const row = (cells: Record<string, CellValue>): SheetRow => { const out: CellValue[] = Array(20).fill(null); for (const [column, value] of Object.entries(cells)) out[columnIndex(column)] = value; return out; };
 const HEAD_A = row({ B: 'SL', C: 'Trip Date', D: 'Pick time', E: 'Duration', F: 'Pick from', G: 'Drop at', H: 'Distance', I: 'Cash Collect', J: 'Tips', K: 'Fare(-tip)', L: 'User promo or uber credit (Uber Pay us)', M: 'Uber Mode', N: 'Payment Method', O: 'Uber Comission / Pass (We pay uber)', P: 'Net income per ride', Q: 'Net income in October', R: 'Screenshot', S: 'Commeent' });
@@ -464,4 +467,30 @@ test('report() defaults to the most recent source and validates the id', () => {
     assert.throws(() => wb.report('not-a-uuid'), ValidationError);
     assert.throws(() => wb.report(crypto.randomUUID()), /No workbook import found/);
   } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A38: variance csv serves the frozen ten-column header, BOM, CRLF and cell() injection quoting; /api/export stays byte-identical', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-a38-')); const store = new Store(root); const server = createApp(store);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  try {
+    const wb = new WorkbookImport(store);
+    const { sourceId } = wb.commit(wb.preview(sixTabWorkbook()).token, true, '');
+    store.db.prepare('INSERT INTO import_variance VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(randomUUID(), sourceId, 'October-2026', 'K9', 'net_income', '=I2-J2', '=I2-J2', 1268, 0, 'variance', 'carried across rows', new Date().toISOString());
+    const res = await fetch(`${base}/api/import/workbook/variance.csv?source_id=${sourceId}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'text/csv; charset=utf-8');
+    assert.match(res.headers.get('content-disposition')!, /^attachment; filename="uber-import-variance-\d{4}-\d{2}-\d{2}\.csv"$/);
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.deepEqual([...buf.subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
+    const text = buf.subarray(3).toString('utf8');
+    const lines = text.split('\r\n');
+    assert.equal(lines[0], 'source_sha256,sheet_name,location,metric,workbook_reported,workbook_formula,app_value_bdt,difference_bdt,verdict,note');
+    const dataLines = lines.slice(1, -1);
+    assert.equal(dataLines.length, Number(store.db.prepare('SELECT count(*) AS n FROM import_variance WHERE source_id=?').get(sourceId)!.n));
+    assert.ok(text.includes("'=I2-J2"));
+    const exported = Buffer.from(await (await fetch(`${base}/api/export?month=2026-10`)).arrayBuffer());
+    assert.deepEqual([...exported.subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
+    assert.equal(exported.subarray(3).toString('utf8'), csvHeaders.join(',') + '\r\n');
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); rmSync(root, { recursive: true, force: true }); }
 });

@@ -122,6 +122,30 @@ test('A20: API rejects foreign origin, host, invalid fields and stale saves; fil
     assert.equal((await request('/api/rides', { input: blankRide(), status: 'reviewed', session_id: null })).status, 400);
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
+test('A29: workbook routes hold the loopback guards and reject malformed commit bodies', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'uber-wb-guards-')); const store = new Store(dir); const server = createApp(store);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const request = (path: string, data?: unknown, method = 'POST', headers = {}) => fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: data === undefined ? undefined : JSON.stringify(data) });
+  try {
+    assert.equal((await request('/api/import/workbook/preview', {}, 'POST', { Origin: 'http://evil.example' })).status, 403);
+    const hostStatus = await new Promise<number | undefined>((resolve, reject) => { const req = httpRequest(base + '/api/import/workbook/commit', { headers: { Host: 'evil.example' } }, res => { res.resume(); resolve(res.statusCode); }); req.on('error', reject); req.end(); });
+    assert.equal(hostStatus, 403);
+    assert.equal((await request('/api/import/workbook/commit', { token: randomUUID(), confirmed: true, reason: '' }, 'POST', { 'Sec-Fetch-Site': 'cross-site' })).status, 403);
+    // Missing confirmed violates exact()'s required key set.
+    assert.equal((await request('/api/import/workbook/commit', { token: randomUUID(), reason: '' })).status, 400);
+    // A client-supplied derived total is never accepted (invariant 4).
+    assert.equal((await request('/api/import/workbook/commit', { token: randomUUID(), confirmed: true, reason: '', total: 1 })).status, 400);
+    // binary() always buffers the raw request stream into a Buffer, so a JSON body can never arrive at the preview
+    // handler as a non-Buffer: it reaches WorkbookImport.preview as Buffer bytes and is rejected by the container
+    // inspector with a fixed ValidationError — 400 'Workbook ZIP is empty, invalid or exceeds 25 MB.' — with no
+    // path, SQL text or driver message in the body. Task 8's e2e asserts this same 400 contract.
+    const preview = await request('/api/import/workbook/preview', {}, 'POST');
+    assert.equal(preview.status, 400);
+    assert.equal((await preview.json()).error, 'Workbook ZIP is empty, invalid or exceeds 25 MB.');
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('failed history/session writes roll back without publishing partial changes', () => {
   const directory = mkdtempSync(join(tmpdir(), 'uber-failure-')); const store = new Store(directory);
   try {

@@ -1,6 +1,6 @@
 import { calculate, decimal, cleanLocation, type Ride } from './domain.ts';
 export const csvHeaders = ['id', 'status', 'calculation_status', 'trip_date', 'pickup_time', 'timezone', 'pickup_location', 'drop_location', 'distance_km', 'duration_seconds', 'payment_method', 'service_type', 'financial_basis', 'cash_collected_bdt', 'uber_credit_bdt', 'commission_bdt', 'pass_charge_bdt', 'tips_bdt', 'reported_net_bdt', 'income_excluding_tips_bdt', 'income_including_tips_bdt', 'financial_confirmed', 'adjustment_reason', 'comments', 'attachment_references', 'created_at', 'updated_at', 'reviewed_at'] as const;
-function cell(value: string | number | null, text = true): string {
+export function cell(value: string | number | null, text = true): string {
   let s = value === null ? '' : String(value);
   if (text && /^[\s\u0000-\u001f]*[=+\-@]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
