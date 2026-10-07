@@ -1,9 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { zipSync, strToU8 } from 'fflate';
+import { Store } from '../server/store.ts';
+import { WorkbookImport } from '../server/workbook.ts';
+import { Intake } from '../server/intake.ts';
+import { Evidence } from '../server/evidence.ts';
+import { blankRide, summarize } from '../src/shared/domain.ts';
 import { columnIndex, mapCell, mapRow, detectLayout, isRideRow, rideRows, serialToLocalDate, serialToLocalTime, serialToDurationSeconds, assertDateSystem, usesDate1904, worksheetTotal, WORKBOOK_PARSER_VERSION, LAYOUT_A, LAYOUT_B, LAYOUT_C, layouts, type CellValue, type SheetRow, type WorkbookLayout } from '../src/shared/workbook.ts';
 import { PARSER_VERSION } from '../src/shared/parser.ts';
-import { decimal, financialFields, validateInput } from '../src/shared/domain.ts';
+import { decimal, financialFields, validateInput, ValidationError } from '../src/shared/domain.ts';
 
 const row = (cells: Record<string, CellValue>): SheetRow => { const out: CellValue[] = Array(20).fill(null); for (const [column, value] of Object.entries(cells)) out[columnIndex(column)] = value; return out; };
 const HEAD_A = row({ B: 'SL', C: 'Trip Date', D: 'Pick time', E: 'Duration', F: 'Pick from', G: 'Drop at', H: 'Distance', I: 'Cash Collect', J: 'Tips', K: 'Fare(-tip)', L: 'User promo or uber credit (Uber Pay us)', M: 'Uber Mode', N: 'Payment Method', O: 'Uber Comission / Pass (We pay uber)', P: 'Net income per ride', Q: 'Net income in October', R: 'Screenshot', S: 'Commeent' });
@@ -215,4 +223,245 @@ test('A36: a tab with no known receipts is not comparable and says why', () => {
   assert.ok(total.reason.includes('cash or Uber credit')); assert.ok(!total.reason.includes('excluded rather than'));
   assert.deepEqual(total.excludedFields, { cash_collected_paisa: 2, uber_credit_paisa: 2, tips_paisa: 2, pass_charge_paisa: 2 });
   assert.equal(worksheetTotal([]).comparable, false); assert.ok(worksheetTotal([]).reason.includes('nothing to total'));
+});
+
+// ---- Task 4: WorkbookImport over synthetic fflate-built workbooks (release files are personal data). ----
+const enc = strToU8;
+function sheetXmlOf(rows: SheetRow[]): string {
+  const body = rows.map((cells, i) => `<row r="${i + 1}">${cells.map((v, j) => {
+    const letters = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T'];
+    const ref = `${letters[j]}${i + 1}`;
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'number') return `<c r="${ref}"><v>${v}</v></c>`;
+    if (typeof v === 'boolean') return `<c r="${ref}" t="b"><v>${v ? 1 : 0}</v></c>`;
+    return `<c r="${ref}" t="inlineStr"><is><t>${String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</t></is></c>`;
+  }).join('')}</row>`).join('');
+  return `<?xml version="1.0"?><worksheet><sheetData>${body}</sheetData></worksheet>`;
+}
+function syntheticWorkbook(sheets: Record<string, string>): Buffer {
+  const names = Object.keys(sheets);
+  const files: Record<string, Uint8Array> = { '[Content_Types].xml': enc('<Types/>'), '_rels/.rels': enc('<Relationships/>'), 'xl/workbook.xml': enc(`<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><workbookPr/><sheets>${names.map((n, i) => `<sheet name="${n}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`), 'xl/_rels/workbook.xml.rels': enc(`<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${names.map((n, i) => `<Relationship Id="rId${i + 1}" Type="t" Target="worksheets/sheet${i + 2}.xml"/>`).join('')}</Relationships>`) };
+  names.forEach((n, i) => { files[`xl/worksheets/sheet${i + 2}.xml`] = enc(sheets[n]!); });
+  return Buffer.from(zipSync(files));
+}
+const sixTabWorkbook = () => syntheticWorkbook({
+  'October-2026': sheetXmlOf([HEAD_A, RIDE_A]),
+  'September-2026': sheetXmlOf([HEAD_A, RIDE_B]),
+  'August-2026': sheetXmlOf([HEAD_A, RIDE_A]),
+  'July-2026': sheetXmlOf([HEAD_B, RIDE_B]),
+  'March-2026': sheetXmlOf([row({ A: 'March-2026' }), HEAD_C, RIDE_C]),
+  'Cost Compare-Office with Uber-v': sheetXmlOf([HEAD_COST, RIDE_A]),
+});
+
+test('A23: preview writes no rides and changes no month total', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-a23-')); const store = new Store(root);
+  try {
+    const reviewed = store.save({ ...blankRide(), trip_date: '2026-10-06', pickup_time: '09:30:00', financial_basis: 'worksheet_cash_plus_credit', cash_collected_paisa: 50000, uber_credit_paisa: 0, tips_paisa: 4000, commission_paisa: 5000, pass_charge_paisa: 0, financial_confirmed: true }, 'reviewed');
+    const before = summarize(store.list());
+    const wb = new WorkbookImport(store);
+    const preview = wb.preview(sixTabWorkbook());
+    assert.equal(store.list().length, 1); assert.equal(store.get(reviewed.id).status, 'reviewed');
+    assert.deepEqual(summarize(store.list()), before);
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM import_sources').get()!.n, 0);
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM import_rows').get()!.n, 0);
+    assert.equal(preview.tabs.length, 6);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A23: preview reports six tabs, layouts, and Cost Compare as not a ride ledger', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-tabs-')); const store = new Store(root);
+  try {
+    const preview = new WorkbookImport(store).preview(sixTabWorkbook());
+    assert.deepEqual(preview.tabs.map(t => t.sheet), ['October-2026', 'September-2026', 'August-2026', 'July-2026', 'March-2026', 'Cost Compare-Office with Uber-v']);
+    assert.deepEqual(preview.tabs.map(t => t.layout), ['A', 'A', 'A', 'B', 'C', 'unrecognised']);
+    assert.deepEqual(preview.tabs.map(t => t.ledger), [true, true, true, true, true, false]);
+    const cost = preview.tabs[5]!;
+    assert.equal(cost.verdict, 'not_comparable'); assert.equal(cost.reason, 'Tab is not a ride ledger.'); assert.equal(cost.rows.length, 0);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('staging bounds: at most 5 concurrent, expired on access, evicted oldest on insert, 25 MB cap', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-staging-')); const store = new Store(root);
+  try {
+    const wb = new WorkbookImport(store);
+    const tokens = [wb.preview(sixTabWorkbook()).token, wb.preview(sixTabWorkbook()).token, wb.preview(sixTabWorkbook()).token, wb.preview(sixTabWorkbook()).token, wb.preview(sixTabWorkbook()).token, wb.preview(sixTabWorkbook()).token];
+    assert.equal(wb.staging.size, 5); assert.throws(() => wb.commit(tokens[0]!, true, ''), /preview is unknown or was replaced/);
+    assert.equal(wb.staging.get(tokens[5]!)!.token, tokens[5]);
+    wb.staging.get(tokens[5]!)!.expires = Date.now() - 1;
+    assert.throws(() => wb.commit(tokens[5]!, true, ''), /preview expired/);
+    assert.equal(wb.staging.size, 4); // expired entry was pruned on access.
+    for (const t of tokens.slice(1, 5)) wb.staging.get(t)!.expires = Date.now() - 1;
+    wb.preview(sixTabWorkbook());
+    assert.equal(wb.staging.size, 1); // prune-on-insert clears the rest.
+    const huge = Buffer.concat([sixTabWorkbook(), Buffer.alloc(26_000_000)]);
+    assert.throws(() => wb.preview(huge), ValidationError);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('token is bound to the file: unknown token and tampered staging are rejected', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-token-')); const store = new Store(root);
+  try {
+    const wb = new WorkbookImport(store);
+    assert.throws(() => wb.commit(crypto.randomUUID(), true, ''), /preview is unknown or was replaced/);
+    const token = wb.preview(sixTabWorkbook()).token;
+    wb.staging.get(token)!.buffer = Buffer.from('garbage');
+    assert.throws(() => wb.commit(token, true, ''), /no longer matches its preview/);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A43: a duplicate SHA-256 re-import is refused without confirmation plus reason, and the reason is stored', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-dup-')); const store = new Store(root);
+  try {
+    const wb = new WorkbookImport(store);
+    const buffer = sixTabWorkbook();
+    const first = wb.commit(wb.preview(buffer).token, true, '');
+    assert.equal(first.imported, 5);
+    const again = wb.preview(buffer);
+    assert.ok(again.duplicate); assert.equal(again.duplicate!.rowCount, 5); assert.ok(again.duplicate!.importedAt.length > 0);
+    assert.throws(() => wb.commit(again.token, true, ''), /imported before/);
+    const second = wb.commit(again.token, true, 'Re-imported after correcting the July tab');
+    assert.equal(second.imported, 5);
+    const source = store.db.prepare('SELECT * FROM import_sources ORDER BY rowid DESC LIMIT 1').get()!;
+    assert.equal(source.note, 'Re-imported after correcting the July tab');
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM import_rows').get()!.n, 10);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A44: a matching date/time/distance/cash ride is a non-blocking warning, the row still imports', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-a44-')); const store = new Store(root);
+  try {
+    const mapped = mapRow(RIDE_A, layouts.A, 'Asia/Dhaka').input;
+    const existing = store.save({ ...mapped, financial_basis: 'unresolved' }, 'draft');
+    const wb = new WorkbookImport(store);
+    const preview = wb.preview(sixTabWorkbook());
+    const october = preview.tabs[0]!;
+    assert.equal(october.rows[0]!.warning, true);
+    const result = wb.commit(preview.token, true, '');
+    assert.equal(result.imported, 5);
+    const row = store.db.prepare('SELECT * FROM import_rows WHERE sheet_name=?').get('October-2026')!;
+    assert.equal(row.disposition, 'imported');
+    assert.notEqual(store.get(existing.id).status, 'deleted');
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A28: every committed row is draft, unresolved, unconfirmed, revision 1, reviewed_at null', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-a28-')); const store = new Store(root);
+  try {
+    const wb = new WorkbookImport(store);
+    const result = wb.commit(wb.preview(sixTabWorkbook()).token, true, '');
+    assert.equal(result.imported, 5);
+    for (const ride of store.list()) {
+      assert.equal(ride.status, 'draft'); assert.equal(ride.financial_basis, 'unresolved');
+      assert.equal(ride.financial_confirmed, false); assert.equal(ride.revision, 1); assert.equal(ride.reviewed_at, null);
+    }
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A47: each ride gets a distinct randomUUID, a create history row, an import_rows link, valid data, app timezone', () => {
+    const root = mkdtempSync(join(tmpdir(), 'uber-wb-a47-')); const store = new Store(root);
+  try {
+    store.db.prepare("UPDATE settings SET value='\"Europe/London\"' WHERE key='timezone'").run();
+    const wb = new WorkbookImport(store);
+    wb.commit(wb.preview(sixTabWorkbook()).token, true, '');
+    const rides = store.list();
+    assert.equal(rides.length, 5);
+    assert.equal(new Set(rides.map(r => r.id)).size, 5);
+    for (const ride of rides) {
+      validateInput(JSON.parse(String(store.db.prepare('SELECT data FROM rides WHERE id=?').get(ride.id)!.data)));
+      assert.equal(ride.timezone, 'Europe/London');
+      assert.equal(store.db.prepare("SELECT count(*) AS n FROM history WHERE ride_id=? AND action='create'").get(ride.id)!.n, 1);
+      const link = store.db.prepare('SELECT * FROM import_rows WHERE ride_id=?').get(ride.id)!;
+      assert.ok(link && link.sheet_name && Number(link.sheet_row) > 0);
+    }
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A29: commit writes zero field_decisions rows even with evidence.finalize wired as afterSave', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-fd-')); const store = new Store(root);
+  try {
+    const intake = new Intake(store), evidence = new Evidence(store, intake);
+    store.afterSave = r => evidence.finalize(r);
+    const wb = new WorkbookImport(store);
+    wb.commit(wb.preview(sixTabWorkbook()).token, true, '');
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM field_decisions').get()!.n, 0);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A48: a failure injected on the last ride rolls the batch back to zero', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-a48-')); const store = new Store(root);
+  try {
+    const wb = new WorkbookImport(store);
+    const buffer = sixTabWorkbook();
+    const token = wb.preview(buffer).token;
+    const entry = wb.staging.get(token)!;
+    const lastRow = entry.tabs.flatMap(t => t.rows).pop()!;
+    lastRow.mapped = { ...lastRow.mapped, trip_date: 'not-a-date' };
+    assert.throws(() => wb.commit(token, true, ''), ValidationError);
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM rides').get()!.n, 0);
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM import_rows').get()!.n, 0);
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM import_variance').get()!.n, 0);
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM import_sources').get()!.n, 0);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A36: summarize fields match except drafts, which rise by the imported count', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-sum-')); const store = new Store(root);
+  try {
+    store.save({ ...blankRide(), trip_date: '2026-10-06', pickup_time: '09:30:00', financial_basis: 'worksheet_cash_plus_credit', cash_collected_paisa: 50000, uber_credit_paisa: 0, tips_paisa: 4000, commission_paisa: 5000, pass_charge_paisa: 0, financial_confirmed: true }, 'reviewed');
+    const before = summarize(store.list());
+    const wb = new WorkbookImport(store);
+    const result = wb.commit(wb.preview(sixTabWorkbook()).token, true, '');
+    const after = summarize(store.list());
+    assert.equal(after.count, before.count); assert.equal(after.cash, before.cash); assert.equal(after.credit, before.credit);
+    assert.equal(after.tips, before.tips); assert.equal(after.deductions, before.deductions); assert.equal(after.including, before.including);
+    assert.equal(after.excluding, before.excluding); assert.equal(after.distance_meters, before.distance_meters);
+    assert.equal(after.drafts, before.drafts + result.imported);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A36: the variance report has defect rows and exact per-tab totals with no tolerance', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-a36-')); const store = new Store(root);
+  try {
+    // Two rows whose workbook-stated net total is one paisa above the app recalculation: a single-paisa gap is a variance.
+    const first = row({ B: 1, C: 46325, F: 'Tejgaon', I: 1000, J: 0, K: 1000, L: 0, N: 'Cash', O: 0, P: 1000 });
+    const second = row({ B: 2, C: 46326, F: 'Tejgaon', I: 500, J: 1, K: 499, L: 0, N: 'Cash', O: 0, P: 499.01 });
+    // A33 shared-formula row-mismatch master embedded in October's ledger; A34 plain cross-tab; A35 embedded literal + typed literal.
+    const oct = sheetXmlOf([HEAD_A, first, second])
+      .replace('<c r="K3"><v>499</v></c>', '<c r="K3"><f t="shared" ref="K3:K7" si="0">I2-J2</f><v>499</v></c>')
+      .replace('</sheetData>', `<row r="78"><c r="P78"><f>'August-2026'!Q81</f><v>1</v></c></row><row r="80"><c r="Q80"><f>I80-J80</f><v>1</v></c></row></sheetData>`);
+    const aug = sheetXmlOf([HEAD_A, first])
+      .replace('</sheetData>', `<row r="55"><c r="O55"><f>734.81-654.82</f><v>79.99</v></c></row><row r="80"><c r="Q80"><v>0</v></c></row></sheetData>`);
+    const buffer = syntheticWorkbook({ 'October-2026': oct, 'August-2026': aug });
+    const wb = new WorkbookImport(store);
+    const preview = wb.preview(buffer);
+    const kinds = preview.defects.map(d => d.kind).sort();
+    assert.ok(kinds.includes('row-mismatch'), JSON.stringify(kinds));
+    assert.ok(kinds.includes('cross-tab-carry-forward'), JSON.stringify(kinds));
+    assert.ok(kinds.includes('embedded-numeric-literal'), JSON.stringify(kinds));
+    assert.ok(kinds.includes('typed-literal-where-sibling-has-formula'), JSON.stringify(kinds));
+    const result = wb.commit(preview.token, true, '');
+    const report = wb.report();
+    assert.equal(report.tabs.length, 2);
+    const october = report.tabs.find(t => t.sheet === 'October-2026')!;
+    assert.equal(october.appTotalPaisa, 149900);
+    assert.equal(october.statedPaisa, 149901);
+    assert.equal(october.differencePaisa, -1);
+    assert.equal(october.verdict, 'variance'); // one paisa is a variance, not a match.
+    assert.equal(report.variance.filter(v => v.verdict === 'defect').length, preview.defects.length);
+    assert.ok(report.variance.some(v => v.sheet_name === 'October-2026' && v.metric === 'income_excluding_tips' && v.verdict === 'variance'));
+    assert.equal(result.imported, 3);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('report() defaults to the most recent source and validates the id', () => {
+  const root = mkdtempSync(join(tmpdir(), 'uber-wb-report-')); const store = new Store(root);
+  try {
+    const wb = new WorkbookImport(store);
+    const first = wb.commit(wb.preview(sixTabWorkbook()).token, true, '');
+    const second = wb.commit(wb.preview(sixTabWorkbook()).token, true, 'second run');
+    assert.equal(wb.report().source.id, second.sourceId);
+    assert.equal(wb.report(first.sourceId).source.id, first.sourceId);
+    assert.throws(() => wb.report('not-a-uuid'), ValidationError);
+    assert.throws(() => wb.report(crypto.randomUUID()), /No workbook import found/);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
 });
