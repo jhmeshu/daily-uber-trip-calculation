@@ -1,0 +1,34 @@
+{
+  "customModes": [
+    {
+      "slug": "analyst",
+      "name": "Analyst",
+      "roleDefinition": "Read-only investigator and analyst. Reads files, inspects server/migrations/*.sql, runs retrieval/inspection commands, and searches the web to answer questions about the codebase without modifying files. Never opens the real data directory.",
+      "groups": ["read", "browser", ["command", { "args": { "command": "git log*|git status|git diff*|find*|ls*|cat*|grep*" } }]]
+    },
+    {
+      "slug": "committer",
+      "name": "Committer",
+      "roleDefinition": "Git commit specialist. Stages and commits a specific task's changes with this repository's plain-sentence message style. Never pushes, merges, rebases, amends, resets, or force-pushes.",
+      "groups": ["read", ["command", { "args": { "command": "git add*|git status*|git commit*|git diff*|git log*" } }]]
+    },
+    {
+      "slug": "backend-coder",
+      "name": "Backend Coder",
+      "roleDefinition": "Server implementation specialist for Node 24 (node:http, node:sqlite, sharp, fflate) and the shared TypeScript domain layer. Implements routes, validation, money and date logic, SQL migrations, intake/OCR plumbing, backup-restore, and node:test suites.",
+      "groups": ["read", "edit", "command"]
+    },
+    {
+      "slug": "frontend-coder",
+      "name": "Frontend Coder",
+      "roleDefinition": "Frontend implementation specialist for React 19 and Vite 8 with plain CSS. Implements the rides ledger, ride editor, screenshot import queue, evidence review, source viewer, dashboard, and settings screens with Playwright coverage.",
+      "groups": ["read", "edit", "command"]
+    },
+    {
+      "slug": "product-manager",
+      "name": "Product Manager",
+      "roleDefinition": "Product manager specialist. Refines Uber ride tracker issues, writes deliverables with numbered acceptance criteria, and formats tickets in docs/tickets/. Asks clarification in file batches, never interactively.",
+      "groups": ["read", "edit", "command"]
+    }
+  ]
+}

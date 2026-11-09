@@ -1,0 +1,16 @@
+---
+description: React 19 + Vite 8 + plain CSS frontend conventions
+globs: src/**
+alwaysApply: false
+---
+
+# Frontend Development Rules
+
+- React 19.3 automatic JSX runtime, Vite 8. No router, no state library, no component library, no CSS framework.
+- State is local `useState` / `useRef` only. `src/main.tsx` owns the app shell and cross-panel state.
+- One plain stylesheet `src/style.css` with BEM-ish class names.
+- All HTTP goes through `api<T>()` in `src/api.ts`. Never call `fetch` directly.
+- Preserve the `alive` unmount guard and the sequence-number async guard. Autosave stays debounced (400 ms) and serialized.
+- Display money only via `money()`, durations only via `formatDuration()`. `money(null)` renders `Unknown`.
+- Accessibility is load-bearing: `tests/*.spec.ts` selects only by role and accessible name. Errors use `role="alert"`, status uses `role="status"`. No overflow at 390px.
+- Named exports only, inline prop types, one component per file.

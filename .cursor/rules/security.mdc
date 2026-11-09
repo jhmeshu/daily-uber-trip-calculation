@@ -1,0 +1,15 @@
+---
+description: Loopback security and file-handling rules
+globs: server/**
+alwaysApply: false
+---
+
+# Security Rules
+
+- Never weaken the loopback guards: exact `Host` match, `Origin` validation, `Sec-Fetch-Site`, CSP, `nosniff`, `no-store`, static-path containment. `wasm-unsafe-eval` exists for Tesseract and stays scoped to `script-src`.
+- Enforce body limits **before** buffering: JSON 4,500,000 bytes, images `MAX_FILE_BYTES` (10 MB), restore archive 200 MB. Never raise a cap to make a test pass.
+- Declared MIME must match the `sharp`-decoded format.
+- Reject archive entries with absolute paths, `..`, or symlinks. Keep the expansion, entry-count, and `data.json` caps.
+- Files `0o600` in `0o700` directories, `flag: 'wx'`, atomic `.tmp` + `renameSync`. Generated keys only — never the user's filename.
+- No external network at runtime. OCR assets come from `public/ocr/`, never a CDN.
+- Never commit secrets, and never echo credentials or personal data from real screenshots or backups.

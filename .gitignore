@@ -5,3 +5,9 @@ dist/
 playwright-report/
 test-results/
 public/ocr/
+.context/
+.env*
+.idea/
+.vscode/
+*.swp
+*.log

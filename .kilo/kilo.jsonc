@@ -1,0 +1,55 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "instructions": [
+    ".kilo/AGENTS.md",
+    ".kilo/rules/backend-development-rules.md",
+    ".kilo/rules/frontend-development-rules.md",
+    ".kilo/rules/typescript-style-guide.md",
+    ".kilo/rules/testing-rules.md",
+    ".kilo/rules/security-rules.md",
+    ".kilo/rules/git-guidelines.md",
+    ".kilo/rules/context-cache.md"
+  ],
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "git *": "allow",
+      "npm test": "allow",
+      "npm run typecheck": "allow",
+      "npm run build": "allow",
+      "npm run test:e2e": "allow"
+    },
+    "read": "allow",
+    "edit": "allow",
+    "webfetch": "ask",
+    "websearch": "ask"
+  },
+  "agent": {
+    "analyst": {
+      "description": "Read-only investigator and analyst. Reads files, inspects server/migrations/*.sql, runs retrieval/inspection commands, and searches the web to answer questions about any codebase or external topic.",
+      "mode": "subagent"
+    },
+    "committer": {
+      "description": "Git commit specialist. Stages and commits a specific task's changes with this repository's plain-sentence message style — NEVER pushes, merges, rebases, amends, resets, or force-pushes.",
+      "mode": "subagent"
+    },
+    "backend-coder": {
+      "description": "Server implementation specialist for Node 24 (node:http, node:sqlite, sharp, fflate) and the shared TypeScript domain layer. Implements routes, validation, money and date logic, SQL migrations, intake/OCR plumbing, backup-restore, and node:test suites.",
+      "mode": "subagent"
+    },
+    "frontend-coder": {
+      "description": "Frontend implementation specialist for React 19 and Vite 8 with plain CSS. Implements the rides ledger, ride editor, screenshot import queue, evidence review, source viewer, dashboard, and settings screens with Playwright coverage.",
+      "mode": "subagent"
+    },
+    "product-manager": {
+      "description": "Product-manager worker for the /product-management skill. Turns a rough list of Uber ride tracker issues into complete, end-to-end deliverables with numbered acceptance criteria.",
+      "mode": "subagent"
+    }
+  },
+  "skills": {
+    "paths": [
+      ".kilo/skills",
+      ".claude/skills"
+    ]
+  }
+}

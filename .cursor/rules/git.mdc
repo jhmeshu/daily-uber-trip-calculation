@@ -1,0 +1,14 @@
+---
+description: Git commit and staging rules
+globs: **/*
+alwaysApply: true
+---
+
+# Git Rules
+
+- **This repo does not use Conventional Commits.** One plain declarative sentence, sentence case, capital first letter, no trailing period, no `feat:`/`fix:` prefix, no body, no trailers. 47–74 characters.
+- Append an acceptance id when one applies: `Reject blank amounts as unknown rather than zero (A04)`.
+- **Explicit staging only:** `git add <path1> <path2>`. NEVER `git add .`, `git add -A`, or `git add -u`.
+- Verify the staged set with `git status` and `git diff --cached --stat` before committing.
+- Never push, merge, rebase, amend, `reset --hard`, or force-push without explicit authorization.
+- Never stage `*.sqlite*`, `public/ocr/`, `dist/`, `test-results/`, `playwright-report/`, or `.context/`.

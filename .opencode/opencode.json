@@ -1,0 +1,51 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "skills": {
+    "paths": [
+      ".opencode/skills"
+    ]
+  },
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "git status*": "allow",
+      "git log*": "allow",
+      "git diff*": "allow",
+      "git add*": "allow",
+      "git commit*": "allow",
+      "npm test": "allow",
+      "npm run typecheck": "allow",
+      "npm run build": "allow",
+      "npm run test:e2e": "allow"
+    },
+    "read": "allow",
+    "edit": "allow",
+    "webfetch": "ask",
+    "websearch": "ask"
+  },
+  "agent": {
+    "analyst": {
+      "description": "Read-only investigator and analyst. Reads files, inspects server/migrations/*.sql, runs retrieval/inspection commands, and searches the web to answer questions about any codebase or external topic. Returns curated results — file lists, summaries, implementation plans, or deep analyses — WITHOUT ever modifying files. Use when you need something located, read, summarized, explained, or deeply analyzed.",
+      "mode": "subagent"
+    },
+    "committer": {
+      "description": "Git commit specialist. Stages and commits a specific task's changes with this repository's plain-sentence message style — NEVER pushes, merges, rebases, amends, resets, or force-pushes. Use after a single task's implementation is complete and verified, to checkpoint progress.",
+      "mode": "subagent"
+    },
+    "backend-coder": {
+      "description": "Server implementation specialist for Node 24 (node:http, node:sqlite, sharp, fflate) and the shared TypeScript domain layer. Implements API routes, validation, money and date logic, SQL migrations, intake/OCR plumbing, backup-restore, and node:test suites. Use when you need server code, database schema, shared domain functions, or tests written or modified.",
+      "mode": "subagent"
+    },
+    "frontend-coder": {
+      "description": "Frontend implementation specialist for React 19 (automatic JSX runtime) and Vite 8 with plain CSS. Implements the rides ledger, ride editor, screenshot import queue, evidence review, source viewer, dashboard, and settings screens against the local API, with Playwright coverage. Use when you need components, panels, screens, client state, or accessibility work written or modified.",
+      "mode": "subagent"
+    },
+    "product-manager": {
+      "description": "Product-manager worker for the /product-management skill. Turns a rough list of Uber ride tracker issues into complete, end-to-end deliverables with numbered acceptance criteria, asking clarification questions in file batches rather than interactively. Stateless across spawns; all state lives in .context/pm-cycles/.",
+      "mode": "subagent"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+---
+description: node:test and Playwright testing conventions
+globs: tests/**
+alwaysApply: false
+---
+
+# Testing Rules
+
+- `tests/*.test.ts` → `node:test` via `tsx` (`npm test`). Flat top-level `test()` calls, **no `describe()`**.
+- `tests/*.spec.ts` → Playwright (`npm run test:e2e`). Runs real Tesseract OCR; takes minutes.
+- AAA structure with blank-line separation. Local factory functions so a test states only what it varies.
+- **Never touch real user data.** Every test that constructs a `Store` uses `mkdtempSync` and cleans up in `finally`.
+- Deterministic: explicit dates, synthetic images via `sharp({ create: ... })`, no ambient clock, no network.
+- Failure injection via a SQLite `RAISE(ABORT, ...)` trigger is the established way to test error paths.
+- Titles carry the acceptance id when one applies: `'A04: unknown is distinct from explicit zero'`.
+- E2E selects only by role and accessible name. Assert nothing escaped the origin.
+- Run `npm run typecheck` and `npm test` before committing. Never claim a suite passed that you did not run.

@@ -1,0 +1,38 @@
+# Uber Ride Tracker — Cursor Rules
+
+You are a Senior Engineer working on the Uber Ride Tracker — a single-user, offline-first, localhost-only web app that records company-vehicle Uber rides from driver trip-summary screenshots, runs OCR locally, reconciles monthly income in BDT, and exports a CSV ledger.
+
+## Stack & Conventions
+- **Runtime:** Node 24 only (`engines: >=24.14.0 <25`). `node:sqlite` is required — never propose `better-sqlite3`.
+- **Server:** bare `node:http` `createServer` in `server/app.ts`. No Express/Fastify/Hono. Loopback bind on `127.0.0.1`.
+- **Database:** `node:sqlite` `DatabaseSync` in `server/store.ts`. Schema in `server/migrations/*.sql`, gated by `PRAGMA user_version`. A migration is **two** edits: the `.sql` file and its filename in the array in `server/store.ts`. Never edit a released migration.
+- **Shared logic:** `src/shared/` (`domain.ts`, `parser.ts`, `csv.ts`, `intake.ts`) — pure, dependency-free, imported by **both** server and browser. No `node:*` imports there.
+- **Frontend:** React 19.3 with the automatic JSX runtime, Vite 8, one plain stylesheet `src/style.css`.
+  - Do NOT add a component library, CSS-in-JS, or utility-CSS framework.
+  - State is local `useState`/`useRef` only — no router, no state library.
+  - Accessibility is load-bearing: `tests/*.spec.ts` selects only by role and accessible name.
+- **Tests:** `tests/*.test.ts` → `node:test` via `tsx` (`npm test`). `tests/*.spec.ts` → Playwright (`npm run test:e2e`), real Tesseract OCR, minutes. Tests use `mkdtempSync` roots — never the real data directory.
+
+## Domain Invariants
+- **Blank is not zero.** A missing amount is `null` = unknown. Never `Number(x) || 0`, never `?? 0`, never prefill `0`.
+- **Integer paisa**, `BigInt` accumulation. Decimals only at display and CSV boundaries.
+- **Income:** `including = cash + credit - commission - pass`, then `excluding = including - tips`.
+- **Reviewed-only income:** only `status === 'reviewed'` with `reviewErrors().length === 0` contributes.
+- **Server is authoritative.** The browser previews; the server re-validates and recomputes.
+- **Financial edits invalidate confirmation** via `financialSignature()`.
+- **The parser never invents.** Unrecognized layout → zero observations. No silent pick between conflicts. No year inferred from map text.
+- **Local dates, no carry-forward.**
+
+## Security
+- Never weaken the loopback guards: exact `Host` match, `Origin` validation, `Sec-Fetch-Site`, CSP, `nosniff`, `no-store`, static-path containment. `wasm-unsafe-eval` stays scoped to `script-src`.
+- Enforce body limits **before** buffering: JSON 4.5 MB, images 10 MB, restore archive 200 MB.
+- Declared MIME must match the `sharp`-decoded format. Reject archive entries with absolute paths, `..`, or symlinks.
+- The 500 body is a fixed string — never interpolate a path, SQL text, or driver message.
+
+## Git Commits
+- One plain declarative sentence, sentence case, no `feat:`/`fix:` prefix, no body. Append an acceptance id when one applies: `Reject blank amounts as unknown rather than zero (A04)`.
+- Explicit file staging only (`git add <path1> <path2>`). Never `git add .` or `git add -A`.
+- Never push, merge, rebase, or amend without explicit authorization.
+
+## Docs & Reports
+Place new AI-generated documentation, analysis, or plans in `docs/`. Agent state goes to the gitignored `.context/`.

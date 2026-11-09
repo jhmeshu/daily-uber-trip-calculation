@@ -1,0 +1,16 @@
+---
+description: TypeScript and dense house style conventions
+globs: **/*.ts
+alwaysApply: false
+---
+
+# TypeScript Style Guide
+
+- Strict mode, `noEmit`. No `any`, no `@ts-ignore`. Use `unknown` plus a guard, or fix the type.
+- `noUncheckedIndexedAccess` is off; the codebase narrows with `!`. Do not add the flag.
+- **Every relative import carries its extension** (`'./store.ts'`) — `allowImportingTsExtensions` is on. No path alias.
+- `as const` array plus a derived union instead of `enum` — required for anything crossing the JSON boundary.
+- PascalCase types (singular, no `I` prefix), camelCase helpers, `SCREAMING_SNAKE` module constants.
+- Two error types: `ValidationError` and `ConflictError`. Throw them; never invent a third shape.
+
+**Dense house style, intentional:** single quotes, semicolons, trailing commas, 2-space indent, statements packed onto one line, very long lines are normal, comments are rare `//` lines for non-obvious invariants only. There is no formatter or linter configured — do not reformat code you were not asked to touch.

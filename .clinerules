@@ -1,0 +1,30 @@
+# Cline Rules — Uber Ride Tracker
+
+## Tech Stack & Architecture
+- Runtime: Node 24 only (`engines: >=24.14.0 <25`). `node:sqlite` is required.
+- Server: bare `node:http` `createServer` (`server/app.ts`). No Express/Fastify/Hono. Loopback bind only.
+  - Strictly no new runtime dependencies. The app is offline-first; a package that reaches the network is disqualifying.
+- Database: `node:sqlite` `DatabaseSync` (`server/store.ts`). Schema: `server/migrations/*.sql`, gated by `PRAGMA user_version`.
+- Shared logic: `src/shared/` — pure, dependency-free, imported by both server and browser.
+- Frontend: React 19.3 + Vite 8 + plain CSS (`src/style.css`). Local `useState`/`useRef` only. No component library, CSS framework, router, or state library.
+- Every relative import carries its extension (`'./store.ts'`) — `allowImportingTsExtensions` is on. No path alias.
+
+## Domain Invariants
+- Blank is not zero: a missing amount is `null`. Never `|| 0`, never `?? 0`.
+- Money is integer paisa, accumulated with `BigInt`. Decimals only at display/CSV boundaries.
+- `including = cash + credit - commission - pass`; `excluding = including - tips`.
+- Only `reviewed` rides with no `reviewErrors()` contribute to income.
+- The server is authoritative — never trust a client-computed total.
+- Financial edits reset `financial_confirmed` (via `financialSignature()`).
+- The parser never invents: unrecognized layout → zero observations, no silent conflict pick, no inferred year.
+- A migration is two edits: the `.sql` file **and** its filename in `server/store.ts`.
+
+## Testing
+- `tests/*.test.ts` → `node:test` via `tsx` (`npm test`). Flat top-level `test()` calls, no `describe()`.
+- `tests/*.spec.ts` → Playwright (`npm run test:e2e`).
+- Always use a `mkdtempSync` data root. Never point a test at the real data directory.
+
+## Git & Quality
+- Commits: one plain declarative sentence, no Conventional Commits prefix, no body. Cite an acceptance id when one applies.
+- Explicit staging only. Run `npm run typecheck` and `npm test` before committing.
+- Reports & docs: place in `docs/`. Agent state in the gitignored `.context/`.

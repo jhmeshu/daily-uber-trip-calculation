@@ -1,0 +1,22 @@
+---
+description: Sacred money, income, parser, and migration invariants
+globs: **/*
+alwaysApply: true
+---
+
+# Domain Invariants
+
+Violating one of these is a correctness bug, not a style issue.
+
+1. **Blank is not zero.** A missing amount is `null` and means unknown. Never `Number(x) || 0`, never `?? 0`, never prefill `0`, never infer a missing credit/commission/pass charge as zero.
+2. **Integer paisa.** Money is stored as `*_paisa` integers, accumulated with `BigInt`. Decimals exist only at display and CSV boundaries.
+3. **Reviewed-only income.** Only `status === 'reviewed'` rides with `reviewErrors().length === 0` contribute. Drafts, trash, and pending duplicates contribute nothing.
+4. **The server is authoritative.** The browser previews; the server re-validates and recomputes. Never accept a client-supplied total.
+5. **Financial edits invalidate confirmation**, detected via `financialSignature()`.
+6. **Income formula.** `including = cash + credit - commission - pass`, then `excluding = including - tips`.
+7. **The parser never invents.** An unrecognized layout yields zero observations. No silent pick between conflicting observations. No year inferred from map text. `PARSER_VERSION` is bumped on behaviour change.
+8. **Local dates, no carry-forward.** Never roll a date forward to complete an unfinished month.
+9. **Exact inputs and optimistic concurrency.** `exact(obj, keys)` on every mutation body, `requireId()` on every path id, `revision` on every `PUT`, `confirmed: true` on every destructive route.
+10. **A migration is two edits** — the new `.sql` file **and** its filename in `server/store.ts`. Never edit a released migration. Keep `BACKUP_TABLES` in sync.
+11. **Multi-step writes are transactional** (`store.transaction(...)`). Partial writes are data loss.
+12. **Storage lifecycle.** Generated keys `${uuid}.${ext}`, directories `0o700`, files `0o600`, `flag: 'wx'`, `.tmp` + `renameSync`. Never touch a live `rides.sqlite` or its `-wal` / `-shm` sidecars while the app runs.

@@ -1,0 +1,18 @@
+---
+description: Server architecture and route conventions
+globs: server/**
+alwaysApply: false
+---
+
+# Server Development Rules
+
+- `server/index.ts` — process entry: env, bootstrap, shutdown. No request handling.
+- `server/app.ts` — `createApp(store, dist)` owns the entire HTTP boundary: headers, guards, static files, error mapping.
+- `server/intake-routes.ts` — `intakeRoutes(...)` returns `true` when handled.
+- `server/store.ts` — `Store` wraps `node:sqlite` `DatabaseSync`. Persistence only.
+- `server/intake.ts`, `server/evidence.ts`, `server/backup.ts` — intake/OCR, observations and decisions, snapshot/restore.
+- `src/shared/` — pure, dependency-free, imported by **both** sides. No `node:*` imports there.
+
+Error mapping lives in one place: `ValidationError` → 400, `ConflictError` → 409, `ENOENT` → 404, anything else → 500 with a fixed safe message.
+
+Never interpolate a path, SQL text, or a driver message into a response. Always use bound SQL parameters.
